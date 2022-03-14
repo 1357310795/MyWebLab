@@ -1,0 +1,37 @@
+﻿<Window x:Class="Installer.InstallWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:Installer"
+        Title="修复VBA"
+        Width="800" Height="450"
+        Loaded="Window_Loaded" WindowStartupLocation="CenterScreen"
+        mc:Ignorable="d" Icon="favicon.ico">
+    <Grid>
+        <StackPanel VerticalAlignment="Center" Orientation="Vertical">
+            <TextBlock x:Name="textstate" HorizontalAlignment="Center"
+                       Margin="0,20,0,0"
+                       Text="安装中..."
+                       FontSize="56" FontFamily="Microsoft YaHei UI Light" />
+            <ProgressBar x:Name="progressbar1" Height="10"
+                         Margin="0,20,0,0"
+                         IsIndeterminate="True" />
+            <TextBlock HorizontalAlignment="Center"
+                       TextWrapping="Wrap" Margin="0,20,0,0"
+                       Text="{Binding Info}"
+                       FontSize="24" FontFamily="Microsoft YaHei UI Light" />
+            <TextBlock HorizontalAlignment="Center"
+                       TextWrapping="Wrap" Margin="0,20,0,0"
+                       Foreground="Red"
+                       Text="{Binding Message}"
+                       FontSize="24" FontFamily="Microsoft YaHei UI Light" />
+            <Button x:Name="buttonclose"
+                    Width="200" Height="50"
+                    Margin="0,20,0,0"
+                    Content="关闭程序"
+                    Visibility="Collapsed" Click="buttonclose_Click"
+                    FontSize="24" />
+        </StackPanel>
+    </Grid>
+</Window>
