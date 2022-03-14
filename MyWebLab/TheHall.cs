@@ -13,6 +13,7 @@ using System.Windows.Interop;
 using System.Windows.Threading;
 using System.Xml.Linq;
 using MyWebLab;
+using MyWebLab.Hack;
 using PackageLibrary;
 using Unity3DWPFConnection;
 using USTCORi.WebLabClient.BizServiceReference;
@@ -35,6 +36,8 @@ namespace USTCORi.WebLabClient
         public string userType;
         private XElement downXml;
         private string downXmlAdd;
+        public UserCountControl ucControl;
+        public string newFile;
 
         public Report SetLabStartTask;
         public Report SetLabEndTask;
@@ -101,12 +104,22 @@ namespace USTCORi.WebLabClient
             Unity3DWPF.Instance.StartConnect();
             Unity3DWPF.Instance.MessageReceived += this.Instance_MessageReceived;
         }
-        public void ExitApp()
+        public void ExitExp()
         {
-            UserCountControl ucControl = new UserCountControl();
+            ucControl = new UserCountControl();
             ucControl.ID = this.ucID;
             ucControl.OperType = 1;
-            DoReportCloseApp(ucControl);
+            QueueReportCloseApp();
+            App.runningInfo.Global.ShutdownLab();
+            Unity3DWPF.Instance.ReleaseConnect();
+            MainWindow.CloseManager.Publish(new Object());
+        }
+        public void ExitApp()
+        {
+            ucControl = new UserCountControl();
+            ucControl.ID = this.ucID;
+            ucControl.OperType = 1;
+            QueueReportCloseApp();
             ShutdownAllProcess();
         }
         private static void ShutdownAllProcess()
@@ -115,6 +128,7 @@ namespace USTCORi.WebLabClient
             Unity3DWPF.Instance.ReleaseConnect();
             Environment.Exit(0);
             Application.Current.Shutdown();
+            
         }
         #endregion
 
@@ -226,9 +240,11 @@ namespace USTCORi.WebLabClient
             this.LabName = this.lab.LABNAME;
             this.LabTypeName = this.lab.LABTYPENAME;
 
-            DoReportLabStart();
-            if (!DoReportJF())
-                return;
+            MainWindow m = new MainWindow();
+            m.Show();
+
+            QueueReportLabStart();
+            QueueReportJF();
             
             try
             {
@@ -244,7 +260,7 @@ namespace USTCORi.WebLabClient
                 this.pack.SetDirectoryToUnPack(temppath + "\\lab");
                 this.pack.Run();
 
-                //CreateUSERINFOBIN(TempFolder);
+                CreateUSERINFOBIN(temppath);
 
                 Process ap = new Process();
                 ap.StartInfo.FileName = temppath + "\\lab\\Main.exe";
@@ -283,6 +299,7 @@ namespace USTCORi.WebLabClient
                 App.runningInfo.Global.RunningExperiment = this.lab;
                 App.runningInfo.Global.RunningProcess = ap;
 
+                
                 //DistroyFile(TempFonder, ap);
             }
             catch (Exception ex1)
@@ -447,12 +464,12 @@ namespace USTCORi.WebLabClient
                     time.Second.ToString()
                 });
                 string filename = App.runningInfo.Const.UserName + "_" + date + ".xml";
-                this.UploadDateXml(filem, path, filename);
+                this.QueueUploadDataXml(filem, path, filename);
                 labTime.LabDateUrl = path + "\\" + filename;
                 labTime.Score = this.StudentScore;
             }
 
-            DoReportLabEnd();
+            QueueReportLabEnd();
             //try
             //{
             //    File.Delete(temppath + "\\lab\\Main.exe");
@@ -463,7 +480,7 @@ namespace USTCORi.WebLabClient
             //{
             //    return;
             //}
-            this.ExitApp();
+            this.ExitExp();
         }
 
         public void ReviewXml(string path)
@@ -912,9 +929,8 @@ namespace USTCORi.WebLabClient
         #endregion
 
         #region Report
-        private bool DoReportJF()
+        private void QueueReportJF()//Net1
         {
-            string JFResult = "计费过程出现异常";
             if (this.JFTask == null)
             {
                 this.JFTask = new Report();
@@ -925,9 +941,15 @@ namespace USTCORi.WebLabClient
             this.JFTask.SetParameter("UserID", App.runningInfo.Const.UserName);
             this.JFTask.SetParameter("LabName", this.lab.LABNAME);
             this.JFTask.SetParameter("SysID", 1);
+            MainWindow.AddReportManager.Publish(new ReportModel(lab.LABNAME, "ReportJF", this.JFTask, new DoReportDelegate(DoReportJF)));
+        }
+        private CommonResult DoReportJF(object args)
+        {
+            var JFTask = (Report)args;
+            string JFResult = "计费过程出现异常";
             try
             {
-                SvcResponse response = this.JFTask.Run();
+                SvcResponse response = JFTask.Run();
                 if (string.IsNullOrEmpty(response.Message))
                 {
                     if (response.Data != null)
@@ -941,14 +963,12 @@ namespace USTCORi.WebLabClient
             }
             if (!string.IsNullOrEmpty(JFResult))
             {
-                MessageBox.Show("计费失败：" + JFResult, "Warning", MessageBoxButton.OK, MessageBoxImage.Exclamation);
-                this.ExitApp();
-                return false;
+                return new CommonResult(false, "计费失败：" + JFResult);
             }
-            return true;
+            return new CommonResult(true, "操作成功");
         }
 
-        private void DoReportLabStart()
+        private void QueueReportLabStart()//Net2
         {
             if (this.SetLabStartTask == null)
             {
@@ -958,9 +978,15 @@ namespace USTCORi.WebLabClient
                 this.SetLabStartTask.ReturnType = typeof(int);
             }
             this.SetLabStartTask.SetParameter("labTime", this.labTime);
+            MainWindow.AddReportManager.Publish(new ReportModel(lab.LABNAME, "ReportLabStart", this.SetLabStartTask, new DoReportDelegate(DoReportLabStart)));
+           
+        }
+        private CommonResult DoReportLabStart(object args)
+        {
+            var SetLabStartTask = (Report)args;
             try
             {
-                SvcResponse response = this.SetLabStartTask.Run();
+                SvcResponse response = SetLabStartTask.Run();
                 if (string.IsNullOrEmpty(response.Message))
                 {
                     if (response.Data != null)
@@ -968,20 +994,19 @@ namespace USTCORi.WebLabClient
                         this.RunningID = (int)response.Data;
                         if (this.RunningID <= 0)
                         {
-                            MessageBox.Show("服务器连接出错，此次操作记录无效", "Warning", MessageBoxButton.OK, MessageBoxImage.Exclamation);
-                            this.ExitApp();
+                            return new CommonResult(false, "服务器连接出错，此次操作记录无效");
                         }
                     }
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show("服务器连接出错，此次操作记录无效", "Warning", MessageBoxButton.OK, MessageBoxImage.Exclamation);
-                this.ExitApp();
+                return new CommonResult(false, "服务器连接出错，此次操作记录无效");
             }
+            return new CommonResult(true, "操作成功");
         }
 
-        private void DoReportLabEnd()
+        private void QueueReportLabEnd()//Net3
         {
             if (this.SetLabEndTask == null)
             {
@@ -991,9 +1016,14 @@ namespace USTCORi.WebLabClient
                 this.SetLabEndTask.ReturnType = typeof(int);
             }
             this.SetLabEndTask.SetParameter("labTime", labTime);
+            MainWindow.AddReportManager.Publish(new ReportModel(lab.LABNAME, "ReportLabEnd", this.SetLabEndTask, new DoReportDelegate(DoReportLabEnd)));
+        }
+        private CommonResult DoReportLabEnd(object args)
+        {
+            var SetLabEndTask = (Report)args;
             try
             {
-                SvcResponse response = this.SetLabEndTask.Run();
+                SvcResponse response = SetLabEndTask.Run();
                 if (string.IsNullOrEmpty(response.Message))
                 {
                     if (response.Data != null)
@@ -1008,11 +1038,12 @@ namespace USTCORi.WebLabClient
             }
             catch (Exception ex)
             {
-                MessageBox.Show("服务器连接出错，此次操作记录无效", "Warning", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+                return new CommonResult(false, "服务器连接出错，此次操作记录无效");
             }
+            return new CommonResult(true, "操作成功");
         }
 
-        private void DoReportCloseApp(UserCountControl ucControl)
+        private void QueueReportCloseApp()//Net4
         {
             if (this.UserCountControlTask == null)
             {
@@ -1022,9 +1053,14 @@ namespace USTCORi.WebLabClient
                 this.UserCountControlTask.ReturnType = typeof(int);
             }
             this.UserCountControlTask.SetParameter("ucControl", ucControl);
+            MainWindow.AddReportManager.Publish(new ReportModel(lab.LABNAME, "ReportCloseApp", this.UserCountControlTask, new DoReportDelegate(DoReportCloseApp)));
+        }
+        private CommonResult DoReportCloseApp(object args)
+        {
+            var UserCountControlTask = (Report)args;
             try
             {
-                SvcResponse response = this.UserCountControlTask.Run();
+                SvcResponse response = UserCountControlTask.Run();
                 if (string.IsNullOrEmpty(response.Message))
                 {
                     if (response.Data != null)
@@ -1039,11 +1075,12 @@ namespace USTCORi.WebLabClient
             }
             catch (Exception ex)
             {
-                MessageBox.Show("服务器连接出错，请稍后重试！", "Warning", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+                return new CommonResult(false, "服务器连接出错，请稍后重试！");
             }
+            return new CommonResult(true, "操作成功");
         }
 
-        private void DoReportUnzipFile(string newFile)
+        private void QueueReportUnzipFile()//Net5
         {
             if (this.UnZipFileTask == null)
             {
@@ -1053,14 +1090,19 @@ namespace USTCORi.WebLabClient
                 this.UnZipFileTask.ReturnType = typeof(string);
             }
             this.UnZipFileTask.SetParameter("zipFilePath", newFile);
+            MainWindow.AddReportManager.Publish(new ReportModel(lab.LABNAME, "ReportUnzipFile", this.UnZipFileTask, new DoReportDelegate(DoReportJF)));
+        }
+        private CommonResult DoReportUnzipFile(object args)
+        {
+            var UnZipFileTask = (Report)args;
             try
             {
-                SvcResponse response = this.UnZipFileTask.Run();
+                SvcResponse response = UnZipFileTask.Run();
                 if (string.IsNullOrEmpty(response.Message))
                 {
                     if (response.Data == null)
                     {
-                        this.UpdateDate();
+                        this.UpdateLabRecord();
                     }
                     else
                     {
@@ -1070,11 +1112,12 @@ namespace USTCORi.WebLabClient
             }
             catch (Exception ex)
             {
-                MessageBox.Show("操作步骤保存失败", "Error", MessageBoxButton.OK, MessageBoxImage.Hand);
+                return new CommonResult(false, "操作步骤保存失败");
             }
+            return new CommonResult(true, "操作成功");
         }
 
-        private void DoReportInsertLabRecord()
+        private void QueueReportInsertLabRecord()//Net6
         {
             if (this.InsertLabRecordTask == null)
             {
@@ -1084,9 +1127,14 @@ namespace USTCORi.WebLabClient
                 this.InsertLabRecordTask.ReturnType = typeof(int);
             }
             this.InsertLabRecordTask.SetParameter("recordList", this.recordList);
+            MainWindow.AddReportManager.Publish(new ReportModel(lab.LABNAME, "ReportInsertLabRecord", this.InsertLabRecordTask, new DoReportDelegate(DoReportJF)));
+        }
+        private CommonResult DoReportInsertLabRecord(object args)
+        {
+            var InsertLabRecordTask = (Report)args;
             try
             {
-                SvcResponse response = this.InsertLabRecordTask.Run();
+                SvcResponse response = InsertLabRecordTask.Run();
                 if (string.IsNullOrEmpty(response.Message))
                 {
                     if (response.Data != null)
@@ -1101,8 +1149,9 @@ namespace USTCORi.WebLabClient
             }
             catch (Exception ex)
             {
-                MessageBox.Show("服务器连接出错，数据更新失败", "Error", MessageBoxButton.OK, MessageBoxImage.Hand);
+                return new CommonResult(false, "服务器连接出错，数据更新失败");
             }
+            return new CommonResult(true, "操作成功");
         }
         #endregion
 
@@ -1123,7 +1172,7 @@ namespace USTCORi.WebLabClient
                 this.StudentID = App.runningInfo.Const.UserName;
                 if (labmsglist[0] == "USTCORI_SUBMIT")
                 {
-                    UploadSteps(loadxmlpath);
+                    QueueUploadSteps(loadxmlpath);
                 }
             }
             return IntPtr.Zero;
@@ -1151,7 +1200,7 @@ namespace USTCORi.WebLabClient
                     this.StudentID = App.runningInfo.Const.UserName;
                     if (labmsglist[0] == "USTCORI_SUBMIT")
                     {
-                        UploadSteps(loadxmlpath);
+                        QueueUploadSteps(loadxmlpath);
                     }
                     HallLetter msgsend = new HallLetter("USTCORI_SHUTDOWNEXP", "USTCORI_SAVED");
                     if (Unity3DWPF.Instance.IsCreated && Unity3DWPF.Instance.IsConnected)
@@ -1186,7 +1235,7 @@ namespace USTCORi.WebLabClient
                     this.StudentID = App.runningInfo.Const.UserName;
                     if (labmsglist[0] == "USTCORI_SUBMIT")
                     {
-                        UploadSteps(loadxmlpath);
+                        QueueUploadSteps(loadxmlpath);
                     }
                 }
             }
@@ -1296,25 +1345,43 @@ namespace USTCORi.WebLabClient
             return file;
         }
 
-        public void UploadDateXml(FileInfoManager file, string targetpath, string filename)
+        public void QueueUploadDataXml(FileInfoManager filem, string targetpath, string filename)//Net7
         {
-            if (file.Size >= 0.0)
+            MainWindow.AddReportManager.Publish(new ReportModel(lab.LABNAME, "UploadDataXml", new UploadDataXmlArgs(filem, targetpath, filename), new DoReportDelegate(DoUploadDataXml)));
+        }
+
+        public CommonResult DoUploadDataXml(object args)
+        {
+            var args_ = ((UploadDataXmlArgs)args);
+            FileInfoManager filem = args_.filem;
+            string targetpath = args_.targetpath;
+            string filename = args_.filename;
+
+            try
             {
-                for (int i = 0; i < file.Contents.Count; i++)
+                if (filem.Size >= 0.0)
                 {
-                    if (i > 0)
+                    for (int i = 0; i < filem.Contents.Count; i++)
                     {
-                        this.FileTransferClient.UploadFile(filename, targetpath, file.Contents[i], true);
-                    }
-                    else
-                    {
-                        this.FileTransferClient.UploadFile(filename, targetpath, file.Contents[i], false);
+                        if (i > 0)
+                        {
+                            this.FileTransferClient.UploadFile(filename, targetpath, filem.Contents[i], true);
+                        }
+                        else
+                        {
+                            this.FileTransferClient.UploadFile(filename, targetpath, filem.Contents[i], false);
+                        }
                     }
                 }
             }
+            catch (Exception ex)
+            {
+                return new CommonResult(false, "上传数据出错：" + ex.Message);
+            }
+            return new CommonResult(true, "操作成功");
         }
 
-        private void UploadSteps(string loadxmlpath)
+        private void QueueUploadSteps(string loadxmlpath)//Net8
         {
             this.xeXml = XElement.Load(loadxmlpath);
             ZipHelp.ZipFile(this.UpDicPath, this.ZipFilePath + ".zip");
@@ -1343,28 +1410,45 @@ namespace USTCORi.WebLabClient
             });
             if (this.file.Size >= 0.0)
             {
-                for (int i = 0; i < this.file.Contents.Count; i++)
+                MainWindow.AddReportManager.Publish(new ReportModel(lab.LABNAME, "UploadSteps", new UploadStepsArgs(UpToImg, file), new DoReportDelegate(DoUploadSteps)));
+            }
+        }
+
+        private CommonResult DoUploadSteps(object args)
+        {
+            var args_ = (UploadStepsArgs)args;
+            var UpToImg = args_.UpToImg;
+            var filem = args_.filem;
+
+            try
+            {
+                for (int i = 0; i < filem.Contents.Count; i++)
                 {
                     if (i > 0)
                     {
-                        this.FileTransferClient.UploadFile(this.file.Name, UpToImg, this.file.Contents[i], true);
+                        this.FileTransferClient.UploadFile(filem.Name, UpToImg, filem.Contents[i], true);
                     }
                     else
                     {
-                        this.FileTransferClient.UploadFile(this.file.Name, UpToImg, this.file.Contents[i], false);
+                        this.FileTransferClient.UploadFile(filem.Name, UpToImg, filem.Contents[i], false);
                     }
                 }
-                this.UnZip(this.file.Name, UpToImg);
+                this.UnZip(filem.Name, UpToImg);
             }
+            catch (Exception ex)
+            {
+                return new CommonResult(false, "上传步骤数据出错：" + ex.Message);
+            }
+            return new CommonResult(true, "操作成功");
         }
 
         public void UnZip(string FileName, string UpTo)
         {
-            string newFile = UpTo + FileName;
-            DoReportUnzipFile(newFile);
+            newFile = UpTo + FileName;
+            QueueReportUnzipFile();
         }
 
-        public void UpdateDate()
+        public void UpdateLabRecord()
         {
             try
             {
@@ -1445,7 +1529,7 @@ namespace USTCORi.WebLabClient
                 }
                 if (this.recordList.Count > 0)
                 {
-                    DoReportInsertLabRecord();
+                    QueueReportInsertLabRecord();
                 }
             }
             catch (Exception e)
@@ -1465,5 +1549,31 @@ namespace USTCORi.WebLabClient
 
         [MarshalAs(UnmanagedType.LPStr)]
         public string lpData;
+    }
+
+    public class UploadDataXmlArgs
+    {
+        public FileInfoManager filem;
+        public string targetpath;
+        public string filename;
+
+        public UploadDataXmlArgs(FileInfoManager filem, string targetpath, string filename)
+        {
+            this.filem = filem;
+            this.targetpath = targetpath;
+            this.filename = filename;
+        }
+    }
+
+    public class UploadStepsArgs
+    {
+        public string UpToImg;
+        public FileInfoManager filem;
+
+        public UploadStepsArgs(string upToImg, FileInfoManager filem)
+        {
+            UpToImg = upToImg;
+            this.filem = filem;
+        }
     }
 }

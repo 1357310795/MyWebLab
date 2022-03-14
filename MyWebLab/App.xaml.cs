@@ -21,6 +21,7 @@ namespace MyWebLab
 
         protected override void OnStartup(StartupEventArgs e)
         {
+            this.ShutdownMode = ShutdownMode.OnLastWindowClose;
             this.InitInfo(AppDomain.CurrentDomain.BaseDirectory);
             string path = AppDomain.CurrentDomain.BaseDirectory;
             var l = new List<string>();

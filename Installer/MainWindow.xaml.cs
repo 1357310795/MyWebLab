@@ -46,7 +46,7 @@ namespace Installer
 
         private void Button2_Click(object sender, RoutedEventArgs e)
         {
-            System.Diagnostics.Process.Start("explorer.exe", "");
+            System.Diagnostics.Process.Start("explorer.exe", "https://github.com/1357310795/MyWebLab");
         }
 
         private void Button_Click(object sender, RoutedEventArgs e)
